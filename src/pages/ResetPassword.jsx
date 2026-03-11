@@ -49,7 +49,7 @@ export default function ResetPassword() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold tracking-tight text-stone-800">
-            LUXE<span className="text-amber-600">.</span>
+            Loyllys<span className="text-amber-600"> Collection</span>
           </h1>
           <h2 className="text-2xl font-semibold text-stone-700 mt-4">Reset Your Password</h2>
           <p className="text-stone-500 mt-2">Enter your new password below.</p>

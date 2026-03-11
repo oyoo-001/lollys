@@ -38,7 +38,7 @@ export default function Checkout() {
     setCart(savedCart);
 
     if (isAuthenticated && user) {
-      setForm(prev => ({ ...prev, name: user.full_name || "", email: user.email || "" }));
+      setForm(prev => ({ ...prev, name: user.full_name || "", email: user.email || "", phone: user.phone || "" }));
     }
   }, [user, isAuthenticated]);
 
@@ -51,7 +51,7 @@ export default function Checkout() {
   const handleSubmit = async (e) => {
   e.preventDefault();
   if (!isAuthenticated) return navigateToLogin();
-  if (cart.length === 0) return toast.error("Your cart is empty");
+  if (cart.length === 0) return toast.error("Your cart is empty", { duration: 3000 });
   
   setLoading(true);
 
@@ -71,6 +71,7 @@ export default function Checkout() {
         address: form.address,
         notes: form.notes,
         items: cart, // The backend will stringify this into metadata
+        payment_method: paymentMethod,
       }),
     });
 
@@ -86,7 +87,7 @@ export default function Checkout() {
     }
   } catch (error) {
     console.error("Checkout Error:", error);
-    toast.error(error.message);
+    toast.error(error.message, { duration: 3000 });
   } finally {
     setLoading(false);
   }

@@ -31,7 +31,7 @@ export default function Layout({ children, currentPageName }) {
   }, []);
 
   const isAdmin = user?.role === "admin";
-  const adminPages = ["AdminDashboard", "AdminProducts", "AdminOrders", "AdminUsers", "AdminSupport", "AdminLiveSupport"];
+  const adminPages = ["AdminDashboard", "AdminProducts", "AdminOrders", "AdminUsers", "AdminSupport", "AdminLiveSupport", "AdminFinance"];
   const isAdminPage = adminPages.includes(currentPageName);
 
   if (isAdminPage) {
@@ -151,6 +151,7 @@ function AdminLayout({ children, user, currentPageName, logout }) {
     { name: "Products", page: "AdminProducts", icon: "🛍️" },
     { name: "Orders", page: "AdminOrders", icon: "📦" },
     { name: "Users", page: "AdminUsers", icon: "👥" },
+    { name: "Finance", page: "AdminFinance", icon: "💰" },
     { name: "Support", page: "AdminSupport", icon: "💬" },
     {
       name: "Live Support",

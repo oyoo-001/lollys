@@ -86,6 +86,104 @@ async function sendEmail({ to, subject, html }) {
   });
 }
 
+function createBrandedEmail(title, content) {
+    const brandName = "Lolly's Collection";
+    const footerDetails = `
+        <p>If you have any questions, you can reply to this email or contact our support team through our website.</p>
+        <p style="margin-top: 10px;">${brandName} | Nairobi, Kenya</p>
+        <p>&copy; ${new Date().getFullYear()} ${brandName}. All rights reserved.</p>
+    `;
+
+    return `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 20px auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; color: #334155; line-height: 1.6;">
+        <div style="background-color: #1e293b; color: white; padding: 20px; text-align: center;">
+          <h1 style="margin: 0; font-size: 24px;">${brandName}</h1>
+        </div>
+        <div style="padding: 25px 20px;">
+          <h2 style="font-size: 20px; color: #1e293b; margin-top: 0;">${title}</h2>
+          ${content}
+        </div>
+        <div style="background-color: #f8fafc; padding: 20px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0;">
+          ${footerDetails}
+        </div>
+      </div>
+    `;
+}
+
+async function sendOrderConfirmationEmail(orderId) {
+  try {
+    const [[order]] = await db.query('SELECT * FROM orders WHERE id = ?', [orderId]);
+    if (!order) {
+      console.error(`Attempted to send confirmation for non-existent order ID: ${orderId}`);
+      return;
+    }
+
+    const [items] = await db.query('SELECT * FROM order_items WHERE order_id = ?', [orderId]);
+
+    const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const shippingCost = order.total_amount - subtotal;
+
+    const itemsHtml = items.map(item => `
+      <tr>
+        <td style="padding: 10px; border-bottom: 1px solid #eee; display: flex; align-items: center;">
+          <img src="${item.image_url}" alt="${item.product_name}" width="60" style="border-radius: 8px; margin-right: 15px;">
+          <div>
+            <strong>${item.product_name}</strong><br>
+            <span style="font-size: 0.9em; color: #666;">Quantity: ${item.quantity}</span>
+          </div>
+        </td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right; vertical-align: middle;">KES ${Number(item.price * item.quantity).toFixed(2)}</td>
+      </tr>
+    `).join('');
+
+    const contentHtml = `
+      <p>Hi ${order.customer_name},</p>
+      <p>We've received your order #${order.id} and are getting it ready for shipment. We'll notify you again once it's on its way.</p>
+      
+      <h3 style="border-bottom: 1px solid #eee; padding-bottom: 10px; margin-top: 30px;">Order Summary</h3>
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tbody>
+          ${itemsHtml}
+        </tbody>
+      </table>
+      <table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px;">
+        <tbody>
+          <tr>
+            <td style="padding: 8px 0; text-align: right; color: #666;">Subtotal</td>
+            <td style="padding: 8px 0; text-align: right; width: 100px;">KES ${Number(subtotal).toFixed(2)}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; text-align: right; color: #666;">Shipping</td>
+            <td style="padding: 8px 0; text-align: right;">KES ${Number(shippingCost).toFixed(2)}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; text-align: right; font-weight: bold; font-size: 16px;">Total</td>
+            <td style="padding: 8px 0; text-align: right; font-weight: bold; font-size: 16px;">KES ${Number(order.total_amount).toFixed(2)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="border-bottom: 1px solid #eee; padding-bottom: 10px; margin-top: 30px;">Shipping Information</h3>
+      <p style="line-height: 1.6;">
+        ${order.customer_name}<br>
+        ${order.shipping_address}<br>
+        ${order.phone}
+      </p>
+    `;
+
+    const emailHtml = createBrandedEmail('Thank You For Your Order!', contentHtml);
+
+    await sendEmail({
+      to: order.customer_email,
+      subject: `Your Lolly's Collection Order Confirmation #${order.id}`,
+      html: emailHtml,
+    });
+    console.log(`✅ Order confirmation email sent for order ID: ${orderId}`);
+  } catch (error) {
+    console.error(`❌ Failed to send order confirmation email for order ID: ${orderId}`, error);
+  }
+}
+
 
 
 
@@ -441,14 +539,14 @@ passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
   try {
     const [rows] = await db.query('SELECT * FROM users WHERE id = ?', [id]);
-    done(null, rows[0]);
+    done(null, rows[0] || null);
   } catch (err) {
     done(err, null);
   }
 });
 
 const createToken = (user) => {
-  return jwt.sign({ id: user.id, email: user.email, role: user.role, fullName: user.full_name }, process.env.JWT_SECRET, { expiresIn: '3d' });
+  return jwt.sign({ id: user.id, email: user.email, role: user.role, fullName: user.full_name, avatar_url: user.avatar_url }, process.env.JWT_SECRET, { expiresIn: '3d' });
 };
 
 // --- API: AUTH ROUTES ---
@@ -474,12 +572,19 @@ app.post('/api/auth/register', async (req, res, next) => {
     // Use frontend URL for the link
     const verificationUrl = `http://localhost:5173/verify-email/${verificationToken}`;
 
+    const emailHtml = createBrandedEmail('Verify Your Email Address', `
+      <p>Hi ${fullName},</p>
+      <p>Thanks for registering for an account on Lolly's Collection. Please click the button below to verify your email address and complete your registration.</p>
+      <div style="text-align: center; margin: 25px 0;">
+          <a href="${verificationUrl}" style="background-color: #d97706; color: #ffffff; padding: 12px 25px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Verify Email Address</a>
+      </div>
+      <p style="font-size: 12px; color: #64748b;">If you did not create an account, no further action is required.</p>
+    `);
+
     await sendEmail({
       to: email,
       subject: 'Verify Your Email Address',
-      html: `<p>Hi ${fullName},</p>
-             <p>Thanks for registering for an account on LUXE. Please click the link below to verify your email address:</p>
-             <a href="${verificationUrl}">${verificationUrl}</a>`
+      html: emailHtml
     });
 
     res.status(201).json({ message: 'Registration successful. Please check your email to verify your account.' });
@@ -558,12 +663,18 @@ app.post('/api/auth/resend-verification', async (req, res, next) => {
 
     const verificationUrl = `http://localhost:5173/verify-email/${verificationToken}`;
 
+    const emailHtml = createBrandedEmail('Verify Your Email Address', `
+      <p>Hi ${user.full_name},</p>
+      <p>Here is your new verification link. Please click the button below to verify your email address:</p>
+      <div style="text-align: center; margin: 25px 0;">
+          <a href="${verificationUrl}" style="background-color: #d97706; color: #ffffff; padding: 12px 25px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Verify Email Address</a>
+      </div>
+    `);
+
     await sendEmail({
       to: user.email,
       subject: 'Verify Your Email Address',
-      html: `<p>Hi ${user.full_name},</p>
-                   <p>Here is your new verification link. Please click it to verify your email address:</p>
-                   <a href="${verificationUrl}">${verificationUrl}</a>`
+      html: emailHtml
     });
 
     res.json({ message: 'Verification email sent.' });
@@ -590,12 +701,18 @@ app.post('/api/auth/forgot-password', async (req, res, next) => {
 
     const resetUrl = `http://localhost:5173/reset-password/${resetToken}`;
 
+    const emailHtml = createBrandedEmail('Password Reset Request', `
+      <p>You requested a password reset. Click the button below to reset your password:</p>
+      <div style="text-align: center; margin: 25px 0;">
+          <a href="${resetUrl}" style="background-color: #d97706; color: #ffffff; padding: 12px 25px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Reset Your Password</a>
+      </div>
+      <p style="font-size: 12px; color: #64748b;">If you did not request this, please ignore this email.</p>
+    `);
+
     await sendEmail({
       to: user.email,
       subject: 'Password Reset Request',
-      html: `<p>You requested a password reset. Click the link below to reset your password:</p>
-                   <a href="${resetUrl}">${resetUrl}</a>
-                   <p>If you did not request this, please ignore this email.</p>`
+      html: emailHtml
     });
 
     res.json({ message: 'If a user with that email exists, a password reset link has been sent.' });
@@ -627,8 +744,7 @@ app.post('/api/auth/reset-password/:token', async (req, res, next) => {
 
 app.get('/api/auth/me', authMiddleware, async (req, res, next) => {
   try {
-    const [rows] = await db.query('SELECT id, full_name, email, role, created_date, phone FROM users WHERE id = ?', [req.user.id]);
-    if (!rows[0]) return res.status(404).json({ message: 'User not found' });
+const [rows] = await db.query('SELECT id, full_name, email, role, created_date, phone, avatar_url FROM users WHERE id = ?', [req.user.id]);    if (!rows[0]) return res.status(404).json({ message: 'User not found' });
     res.json(rows[0]);
   } catch (error) {
     next(error);
@@ -636,17 +752,44 @@ app.get('/api/auth/me', authMiddleware, async (req, res, next) => {
 });
 
 app.put('/api/auth/me', authMiddleware, async (req, res, next) => {
+     
     try {
         const { id } = req.user;
-        const { full_name, phone } = req.body;
-        await db.query('UPDATE users SET full_name = ?, phone = ? WHERE id = ?', [full_name, phone, id]);
-        const [updatedUser] = await db.query('SELECT id, full_name, email, role, created_date, phone FROM users WHERE id = ?', [id]);
+        
+        const { full_name, phone, avatar_url } = req.body;
+
+        const fieldsToUpdate = {};
+        if (full_name !== undefined) fieldsToUpdate.full_name = full_name;
+        if (phone !== undefined) fieldsToUpdate.phone = phone;
+        if (avatar_url !== undefined) fieldsToUpdate.avatar_url = avatar_url;
+
+        if (Object.keys(fieldsToUpdate).length > 0) {
+            await db.query('UPDATE users SET ? WHERE id = ?', [fieldsToUpdate, id]);
+        }
+
+        const [updatedUser] = await db.query('SELECT id, full_name, email, role, created_date, phone, avatar_url FROM users WHERE id = ?', [id]);
         res.json(updatedUser[0]);
     } catch (error) {
         next(error);
     }
 });
-
+app.post('/api/auth/change-password', authMiddleware, async (req, res, next) => {
+    try {
+        const { id } = req.user;
+        const { currentPassword, newPassword } = req.body;
+        if (!currentPassword || !newPassword) return res.status(400).json({ message: 'All fields are required' });
+        const [rows] = await db.query('SELECT password FROM users WHERE id = ?', [id]);
+        const user = rows[0];
+        if (!user || !user.password) return res.status(401).json({ message: 'User not found or password not set.' });
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+        if (!isMatch) return res.status(401).json({ message: 'Incorrect current password.' });
+        const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+        await db.query('UPDATE users SET password = ? WHERE id = ?', [hashedNewPassword, id]);
+        res.json({ message: 'Password updated successfully.' });
+    } catch (error) {
+        next(error);
+    }
+});
 
 // --- API: UPLOAD ROUTE ---
 app.post('/api/upload', authMiddleware, upload.single('file'), (req, res, next) => {
@@ -749,6 +892,23 @@ app.get('/api/orders', authMiddleware, async (req, res, next) => {
         }));
 
         res.json(ordersWithItems);
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.put('/api/orders/:id', authMiddleware, adminMiddleware, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        // Basic validation
+        if (!status) {
+            return res.status(400).json({ message: 'Status is required.' });
+        }
+
+        await db.query('UPDATE orders SET status = ? WHERE id = ?', [status, id]);
+        res.json({ success: true, message: 'Order status updated.' });
     } catch (error) {
         next(error);
     }
@@ -858,7 +1018,7 @@ app.post('/api/orders', authMiddleware, async (req, res, next) => {
     }
 });
 app.post('/api/orders/initialize', authMiddleware, async (req, res, next) => {
-    const { customer_email, customer_name, items, county, address, phone, notes } = req.body;
+    const { customer_email, customer_name, items, county, address, phone, notes, payment_method } = req.body;
 
     if (!customer_email || !items || items.length === 0) {
         return res.status(400).json({ message: 'Missing required fields' });
@@ -872,15 +1032,11 @@ app.post('/api/orders/initialize', authMiddleware, async (req, res, next) => {
         const total_amount = subtotal + shippingFee;
         
         const reference = uuidv4();
-
-        // 2. Initialize Paystack with ALL order data in metadata
-        const paystackResponse = await axios.post(
-            `${PAYSTACK_API_URL}/transaction/initialize`,
-            {
-                email: customer_email,
-                amount: Math.round(total_amount * 100),
-                reference: reference,
-                callback_url: `${APP_URL}/payment/callback`,
+        const paystackPayload = {
+            email: customer_email,
+            amount: Math.round(total_amount * 100),
+            reference: reference,
+            callback_url: `${APP_URL}/payment/callback`,
                 metadata: {
                     user_id: req.user.id,
                     customer_name,
@@ -890,7 +1046,18 @@ app.post('/api/orders/initialize', authMiddleware, async (req, res, next) => {
                     notes,
                     items: JSON.stringify(items) // Important: Stringify the array
                 },
-            },
+        };
+
+        if (payment_method === 'mpesa') {
+            paystackPayload.channels = ['mobile_money'];
+        } else if (payment_method === 'card') {
+            paystackPayload.channels = ['card'];
+        }
+
+        // 2. Initialize Paystack with ALL order data in metadata
+        const paystackResponse = await axios.post(
+            `${PAYSTACK_API_URL}/transaction/initialize`,
+            paystackPayload,
             { headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` } }
         );
 
@@ -920,14 +1087,16 @@ app.get('/api/payment/verify', authMiddleware, async (req, res, next) => {
 
             await connection.beginTransaction();
 
+            const paymentMethod = data.channel === 'mobile_money' ? 'mpesa' : data.channel;
+
             // INSERT ORDER (Notice: status is 'paid' immediately)
             const [orderResult] = await connection.query(
                 `INSERT INTO orders 
                 (customer_id, customer_email, customer_name, total_amount, payment_method, shipping_address, county, street_address, phone, notes, status, payment_status, reference) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'paid', ?)`,
                 [
-                    meta.user_id, data.customer.email, meta.customer_name, (data.amount / 100), 
-                    data.channel, `${meta.address}, ${meta.county}`, meta.county, meta.address, 
+                    meta.user_id, data.customer.email, meta.customer_name, (data.amount / 100),
+                    paymentMethod, `${meta.address}, ${meta.county}`, meta.county, meta.address, 
                     meta.phone, meta.notes, reference
                 ]
             );
@@ -942,6 +1111,8 @@ app.get('/api/payment/verify', authMiddleware, async (req, res, next) => {
             );
 
             await connection.commit();
+            // Send confirmation email
+            await sendOrderConfirmationEmail(orderId);
             res.status(200).json({ status: 'success', orderId });
         } else {
             res.status(400).json({ message: 'Payment verification failed' });
@@ -978,16 +1149,22 @@ app.post('/api/paystack-webhook', async (req, res) => {
             const meta = data.metadata;
             const items = JSON.parse(meta.items);
             const connection = await db.getConnection();
+            const paymentMethod = data.channel === 'mobile_money' ? 'mpesa' : data.channel;
+            const fullShippingAddress = `${meta.address}, ${meta.county}`;
 
             try {
                 await connection.beginTransaction();
 
                 // Create the order as 'processing'
                 const [orderResult] = await connection.query(
-                    `INSERT INTO orders 
-                    (customer_id, customer_email, customer_name, total_amount, payment_method, shipping_address, phone, notes, status, payment_status, reference) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'processing', 'paid', ?)`,
-                    [meta.user_id, data.customer.email, meta.customer_name, (data.amount / 100), data.channel, meta.shipping_address, meta.phone, meta.notes, reference]
+                    `INSERT INTO orders
+                    (customer_id, customer_email, customer_name, total_amount, payment_method, shipping_address, county, street_address, phone, notes, status, payment_status, reference)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing', 'paid', ?)`,
+                    [
+                        meta.user_id, data.customer.email, meta.customer_name, (data.amount / 100),
+                        paymentMethod, fullShippingAddress, meta.county, meta.address,
+                        meta.phone, meta.notes, reference
+                    ]
                 );
 
                 const orderId = orderResult.insertId;
@@ -999,6 +1176,8 @@ app.post('/api/paystack-webhook', async (req, res) => {
                 );
 
                 await connection.commit();
+                // Send confirmation email
+                await sendOrderConfirmationEmail(orderId);
                 console.log(`✅ Order ${orderId} created via Webhook.`);
             } catch (error) {
                 await connection.rollback();
@@ -1072,10 +1251,16 @@ app.put('/api/support-tickets/:id', authMiddleware, adminMiddleware, async (req,
         if (admin_response) {
             const [ticketRows] = await db.query('SELECT * FROM support_tickets WHERE id = ?', [id]);
             const ticket = ticketRows[0];
+            const emailHtml = createBrandedEmail(`Re: ${ticket.subject}`, `
+                <p>Hi ${ticket.customer_name || ''},</p>
+                <p>This is a response to your support ticket regarding "${ticket.subject}":</p>
+                <blockquote style="border-left: 2px solid #eee; padding-left: 1em; margin: 1em 0; font-style: italic; color: #334155;">${admin_response}</blockquote>
+                <p>If you have further questions, please reply to this email or open a new ticket on our website.</p>
+            `);
             await sendEmail({
                 to: ticket.customer_email,
                 subject: `Re: ${ticket.subject}`,
-                html: `<p>Hi ${ticket.customer_name || ''},</p><p>${admin_response}</p><p>Best regards,<br/>LUXE Support Team</p>`,
+                html: emailHtml,
             });
         }
 
@@ -1110,7 +1295,6 @@ const totalOrders = rows[0]?.totalOrders || 0;
     ORDER BY DATE(created_date) ASC;
 `);
 
-        const [paymentData] = await db.query(`SELECT payment_method as name, SUM(total_amount) as value FROM orders GROUP BY payment_method;`);
         const [statusData] = await db.query(`SELECT status as name, COUNT(id) as value FROM orders GROUP BY status;`);
         const [paymentRows] = await db.query(`
     SELECT 
@@ -1127,7 +1311,6 @@ const totalOrders = rows[0]?.totalOrders || 0;
                 totalUsers: totalUsers || 0,
                 pendingOrders: pendingOrders || 0,
                 openTickets: openTickets || 0,
-                paymentData: paymentData || 0
               },
             charts: {
                 revenueData: revenueData.map(r => ({ ...r, date: r.date.charAt(0).toUpperCase() + r.date.slice(1) })),

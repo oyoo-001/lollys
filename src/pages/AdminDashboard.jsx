@@ -35,7 +35,7 @@ export default function AdminDashboard() {
   const salesByDay = Array.from({ length: 7 }, (_, i) => {
     const day = subDays(new Date(), 6 - i);
     const dayStr = format(day, "EEE");
-    const dayData = charts.salesByDay?.find(d => d.date === dayStr);
+    const dayData = charts.revenueData?.find(d => d.date.toLowerCase() === dayStr.toLowerCase());
     return {
       date: dayStr,
       revenue: dayData ? parseFloat(dayData.revenue) : 0,
@@ -93,33 +93,7 @@ export default function AdminDashboard() {
           </ResponsiveContainer>
         </div>
 
-        {/* Payment Methods Pie */}
-        <div className="bg-white rounded-2xl border border-stone-100 p-6">
-          <h3 className="font-bold text-stone-800 mb-4">Revenue by Payment Method</h3>
-          {charts.paymentData?.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
-                <Pie
-                  data={charts.paymentData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={70}
-                  outerRadius={110}
-                  paddingAngle={3}
-                  dataKey="revenue"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {charts.paymentData.map((_, idx) => (
-                    <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => [`KES ${Number(value || 0).toFixed(2)}`, "Revenue"]} />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-[280px] flex items-center justify-center text-stone-400">No data yet</div>
-          )}
-        </div>
+        
 
         {/* Orders trend */}
         <div className="bg-white rounded-2xl border border-stone-100 p-6">

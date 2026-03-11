@@ -66,6 +66,7 @@ import AdminUsers from './pages/AdminUsers';
 import AdminSupport from './pages/AdminSupport';
 import AdminProducts from './pages/AdminProducts';
 import AdminLiveSupport from './pages/AdminLiveSupport';
+import AdminFinance from './pages/AdminFinance';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import __Layout from './Layout.jsx';
@@ -91,6 +92,7 @@ export const PAGES = {
     "AdminSupport": AdminSupport,
     "AdminProducts": AdminProducts,
     "AdminLiveSupport": AdminLiveSupport,
+    "AdminFinance": AdminFinance,
     "Profile": Profile,
     "Settings": Settings,
 }

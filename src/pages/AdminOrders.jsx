@@ -45,14 +45,24 @@ export default function AdminOrders() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ( { id, data } ) => fetch(`/api/orders/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-      body: JSON.stringify(data)
-    }),
+    mutationFn: async ({ id, data }) => {
+      const res = await fetch(`/api/orders/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify(data)
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ message: 'An unknown error occurred' }));
+        throw new Error(errorData.message || 'Failed to update order');
+      }
+      return res.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-all-orders"] });
       toast.success("Order updated");
+    },
+    onError: (error) => {
+      toast.error(error.message);
     },
   });
 

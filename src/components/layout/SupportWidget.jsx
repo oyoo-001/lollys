@@ -105,7 +105,7 @@ const SupportWidget = () => {
     switch (action) {
       case 'start_chat':
         if (isAuthenticated) {
-          setMessages(prev => [...prev, { text: "Connecting you to an admin...", fromAdmin: true, isBot: true }]);
+          setMessages(prev => [...prev, { text: "Connected an admin", fromAdmin: true, isBot: true }]);
          
           setChatStarted(true);
           connectWebSocket(() => {

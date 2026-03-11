@@ -42,9 +42,10 @@ export default function AdminFinance() {
     return methodMatch && searchMatch;
   });
 
-  // Financial Stats Calculation
-  const totalRevenue = orders.reduce((sum, o) => o.payment_status === 'paid' ? sum + (o.total_amount || 0) : sum, 0);
-  const successfulTransactions = orders.filter(o => o.payment_status === 'paid').length;
+  // Financial Stats Calculation for paid orders
+  const paidOrders = orders.filter(o => o.payment_status === 'paid');
+  const totalRevenue = paidOrders.reduce((sum, o) => sum + parseFloat(o.total_amount || '0'), 0);
+  const successfulTransactions = paidOrders.length;
   const avgOrderValue = successfulTransactions > 0 ? totalRevenue / successfulTransactions : 0;
 
   return (

@@ -442,7 +442,8 @@ const { id: userId, role, fullName, email } = decoded;
 
         const recipient = clients.get(to);
         if (recipient && recipient.ws.readyState === WebSocket.OPEN) {
-          recipient.ws.send(JSON.stringify({ type: 'message:from_admin', payload: dbMessage }));
+          const senderName = clients.get(userId)?.name || 'Support Agent';
+          recipient.ws.send(JSON.stringify({ type: 'message:from_admin', payload: { ...dbMessage, admin_name: senderName } }));
         } else {
           // User is offline, send an email notification
           const [[offlineUser]] = await db.query('SELECT * FROM users WHERE id = ?', [to]);
@@ -1298,6 +1299,32 @@ app.post('/api/stripe-webhook', express.raw({type: 'application/json'}), async (
 
     res.json({received: true});
 });
+// --- API: HEALTH CHECK ---
+app.get('/api/health', async (req, res) => {
+  try {
+    // 1. Check Database Connection
+    const connection = await db.getConnection();
+    await connection.ping();
+    connection.release();
+
+    // 2. Respond with Success
+    res.status(200).json({
+      status: 'ok',
+      database: 'connected',
+      uptime: process.uptime(), // Uptime in seconds
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Health check failed:', error.message);
+    // 3. Respond with Failure
+    res.status(503).json({
+      status: 'error',
+      details: 'Database connection failed'
+    });
+  }
+});
+
+
 
 // Serve static files from the dist directory
 app.use(express.static(path.join(__dirname, 'dist')));

@@ -72,7 +72,9 @@ const AdminLiveSupport = () => {
       return;
     }
 
-    ws.current = new WebSocket(`ws://localhost:5000?token=${token}`);
+    const baseApiUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
+    const wsUrl = baseApiUrl.replace(/^http/, 'ws');
+    ws.current = new WebSocket(`${wsUrl}?token=${token}`);
 
     ws.current.onopen = () => {
       console.log('Admin WebSocket connected');

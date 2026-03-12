@@ -21,7 +21,9 @@ export default function Shop() {
     const token = localStorage.getItem('token');
     if (!token) return;
 
-    const socket = new WebSocket(`ws://localhost:5000?token=${token}`);
+    const baseApiUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
+    const wsUrl = baseApiUrl.replace(/^http/, 'ws');
+    const socket = new WebSocket(`${wsUrl}?token=${token}`);
     ws.current = socket;
 
     socket.onmessage = (event) => {

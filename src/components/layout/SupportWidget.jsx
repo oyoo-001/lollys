@@ -17,25 +17,26 @@ const SupportWidget = () => {
   const navigate = useNavigate();
   const [uploading, setUploading] = useState(false);
   const [attachment, setAttachment] = useState(null); // { url, name }
+  const [adminName, setAdminName] = useState(null);
 
   const botGreeting = {
-    text: "Hello! How can I help you today?",
+    text: "Hello! I'm Lolly's Assistant. How can I help you today?",
     fromAdmin: true, // Treat bot as admin for styling
     isBot: true,
     options: [
-      { text: "Have a query? Tap here to speak with an admin.", action: "start_chat" },
-      { text: "About Us", action: "navigate_about" }, // Re-using contact page for 'about'
+      { text: "Talk to a Human", action: "start_chat" },
       { text: "Products", action: "navigate_shop" },
+      { text: "About Us", action: "navigate_about" },
     ]
   };
 
   const [isTyping, setIsTyping] = useState(false);
 
   useEffect(() => {
-    if (isOpen && !chatStarted) {
+    if (isOpen && messages.length === 0) {
       setMessages([botGreeting]);
     }
-  }, [isOpen, chatStarted]);
+  }, [isOpen]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -68,7 +69,7 @@ useEffect(() => {
       ws.current.close();
     }
   };
-}, []);
+}, [isConnected]);
   const fetchAndSetHistory = async () => {
     try {
       const res = await fetch('/api/chat/my-history', { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
@@ -86,13 +87,10 @@ useEffect(() => {
       return;
     }
 
-    // Determine protocol and host dynamically
-const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-const host = import.meta.env.MODE === 'production' 
-  ? 'lollys.up.railway.app' 
-  : 'localhost:5000';
-
-ws.current = new WebSocket(`${protocol}//${host}?token=${token}`);
+    // Use the Vite environment variable for the server URL, fallback to localhost
+    const baseApiUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
+    const wsUrl = baseApiUrl.replace(/^http/, 'ws');
+    ws.current = new WebSocket(`${wsUrl}?token=${token}`);
 
     ws.current.onopen = () => {
       setIsConnected(true);
@@ -103,6 +101,9 @@ ws.current = new WebSocket(`${protocol}//${host}?token=${token}`);
     ws.current.onmessage = (event) => {
       const message = JSON.parse(event.data);
       if (message.type === 'message:from_admin') {
+        if (message.payload.admin_name) {
+          setAdminName(message.payload.admin_name);
+        }
         setMessages(prev => [...prev, { text: message.payload.message_text, attachment: message.payload.attachment_url, fromAdmin: true }]);
       } else if (message.type === 'typing:start:admin') {
         setIsTyping(true);
@@ -113,23 +114,26 @@ ws.current = new WebSocket(`${protocol}//${host}?token=${token}`);
     };
   };
 
+  const initiateHandoff = () => {
+    if (isAuthenticated) {
+      setMessages(prev => [...prev, { text: "Connecting you to an agent...", fromAdmin: true, isBot: true }]);
+      setChatStarted(true);
+      connectWebSocket(() => {
+        ws.current.send(JSON.stringify({ type: 'chat:initiate' }));
+        fetchAndSetHistory();
+      });
+    } else {
+      setMessages(prev => [...prev, {
+        text: "Please sign in to start a live chat with our support team.",
+        fromAdmin: true, isBot: true, options: [{ text: "Sign In / Register", action: "navigate_auth" }]
+      }]);
+    }
+  };
+
   const handleOptionClick = (action) => {
     switch (action) {
       case 'start_chat':
-        if (isAuthenticated) {
-          setMessages(prev => [...prev, { text: "Connected an admin", fromAdmin: true, isBot: true }]);
-         
-          setChatStarted(true);
-          connectWebSocket(() => {
-            ws.current.send(JSON.stringify({ type: 'chat:initiate' }));
-            fetchAndSetHistory();
-          });
-        } else {
-          setMessages(prev => [...prev, {
-            text: "Please sign in to start a live chat with our support team.",
-            fromAdmin: true, isBot: true, options: [{ text: "Sign In / Register", action: "navigate_auth" }]
-          }]);
-        }
+        initiateHandoff();
         break;
       case 'navigate_about':
         navigate(createPageUrl('About'));
@@ -173,20 +177,50 @@ ws.current = new WebSocket(`${protocol}//${host}?token=${token}`);
     }
   };
 
+  const handleBotResponse = (text) => {
+    setIsTyping(true);
+    setTimeout(() => {
+      setIsTyping(false);
+      const lower = text.toLowerCase();
+      let response = { text: "I'm not sure I understand. Would you like to speak to an admin?", options: [{ text: "Talk to Admin", action: "start_chat" }] };
+
+      // Greetings
+      if (/\b(hi|hello|hey|greetings|howdy)\b/.test(lower)) response = { text: "Hello there! Welcome to Lolly's Collection. Need help shopping?" };
+      // Emotions
+      else if (/\b(happy|good|great|awesome|love)\b/.test(lower)) response = { text: "That's wonderful! We love bringing joy to our customers." };
+      else if (/\b(sad|bad|angry|upset|hate)\b/.test(lower)) response = { text: "I'm sorry to hear that. We're here to help make things right. Please talk to an admin.", options: [{ text: "Talk to Admin", action: "start_chat" }] };
+      // Advertising / Products
+      else if (/\b(buy|shop|product|collection|clothes|dress|shoes)\b/.test(lower)) response = { text: "We have an amazing collection of premium products! Check out our Shop page.", options: [{ text: "Go to Shop", action: "navigate_shop" }] };
+      // Admin / Help request
+      else if (/\b(admin|human|person|agent|help|support)\b/.test(lower)) {
+        initiateHandoff();
+        return;
+      }
+
+      setMessages(prev => [...prev, { ...response, fromAdmin: true, isBot: true }]);
+    }, 800);
+  };
+
   const sendMessage = (e) => {
     e.preventDefault();
-    if ((input.trim() || attachment) && ws.current?.readyState === WebSocket.OPEN) {
+    if (input.trim() || attachment) {
+      const userMsg = { text: input || (attachment ? "Sent an attachment" : ""), attachment: attachment?.url, fromAdmin: false };
+      setMessages(prev => [...prev, userMsg]);
+      setInput('');
+      setAttachment(null);
+
+      if (isConnected && ws.current?.readyState === WebSocket.OPEN) {
       const messagePayload = { 
         type: 'message:to_admin', 
         payload: { 
-          text: input || (attachment ? "Sent an attachment" : ""), 
+          text: userMsg.text, 
           attachment: attachment?.url 
         } 
       };
       ws.current.send(JSON.stringify(messagePayload));
-      setMessages(prev => [...prev, { text: input || (attachment ? "Sent an attachment" : ""), attachment: attachment?.url, fromAdmin: false }]);
-      setInput('');
-      setAttachment(null);
+      } else {
+        handleBotResponse(userMsg.text);
+      }
     }
   };
 
@@ -217,9 +251,9 @@ ws.current = new WebSocket(`${protocol}//${host}?token=${token}`);
       {isOpen && (
         <div className="fixed bottom-20 right-5 w-80 h-[28rem] bg-white rounded-lg shadow-2xl z-[999] flex flex-col">
           <header className="bg-amber-600 text-white p-3 rounded-t-lg flex items-center justify-between">
-            <h3 className="font-bold">Lolly's Support</h3>
-            <p className={`text-xs ${isConnected ? 'text-green-300' : 'text-red-300'}`}>
-              {isConnected ? 'Online' : 'Offline'}
+            <h3 className="font-bold">{isConnected ? 'Live Support' : "Lolly's Assistant"}</h3>
+            <p className={`text-xs ${isConnected ? 'text-green-300' : 'text-stone-200'}`}>
+              {isConnected ? (adminName ? `With ${adminName}` : 'Online') : 'Bot'}
             </p>
           </header>
 
@@ -255,7 +289,7 @@ ws.current = new WebSocket(`${protocol}//${host}?token=${token}`);
             <div ref={messagesEndRef} />
           </div>
 
-          {chatStarted && (
+          {(
             <div className="p-2 border-t">
               {attachment && (
                 <div className="flex items-center gap-2 mb-2 p-2 bg-stone-100 rounded-md text-xs text-stone-600">
@@ -282,7 +316,7 @@ ws.current = new WebSocket(`${protocol}//${host}?token=${token}`);
                 <button
                   type="submit"
                   className="bg-amber-600 text-white px-3 py-2 rounded-lg hover:bg-amber-700 disabled:bg-gray-400"
-                  disabled={!isConnected || (!input.trim() && !attachment)}
+                  disabled={!input.trim() && !attachment}
                 >
                   <Send size={18} />
                 </button>

@@ -339,14 +339,18 @@ app.put('/api/chat/conversations/:userId/status', authMiddleware, adminMiddlewar
 });
 
 wss.on('connection', (ws, req) => {
-  // 1. Authenticate user via token in query param
-  // Using a dummy base for the URL constructor to safely parse query params.
-  const wssBaseUrl = APP_URL.replace(/^http/, 'ws');
-  const url = new URL(req.url, wssBaseUrl);
-  const token = url.searchParams.get('token');
+  // Use the host header from the request to create a valid base URL
+  const protocol = req.headers['x-forwarded-proto'] === 'https' ? 'wss' : 'ws';
+  const host = req.headers.host;
+  const fullUrl = `${protocol}://${host}${req.url}`;
+  
+  const parsedUrl = new URL(fullUrl);
+  const token = parsedUrl.searchParams.get('token');
 
   if (!token) {
-    return ws.close(1008, 'Token required');
+    console.error("Connection rejected: No token provided");
+    ws.close(1008, "Token required");
+    return;
   }
 
   let decoded;
@@ -354,11 +358,10 @@ wss.on('connection', (ws, req) => {
     decoded = jwt.verify(token, process.env.JWT_SECRET);
   } catch (error) {
     console.error('WS Auth Error:', error.message);
-    return ws.close(1008, 'Invalid token');
+    ws.close(1008, 'Invalid token');
+    return; // Ensure we exit the function entirely
   }
-
-  const { id: userId, role, fullName, email } = decoded;
-
+const { id: userId, role, fullName, email } = decoded;
   // 2. Handle Duplicate Connections
   if (clients.has(userId)) {
     console.log(`Closing existing connection for user: ${userId}`);
@@ -369,9 +372,11 @@ wss.on('connection', (ws, req) => {
   console.log(`✅ WebSocket client connected: ${userId} (role: ${role})`);
 
   // 4. MUST HAVE: Cleanup on Disconnect
-  ws.on('close', () => {
-    clients.delete(userId);
-    console.log(`❌ WebSocket client disconnected: ${userId}`);
+ ws.on('close', () => {
+    if (clients.get(userId)?.ws === ws) {
+      clients.delete(userId);
+      console.log(`❌ WebSocket client disconnected: ${userId}`);
+    }
   });
 
   // Handle errors to prevent server crashes

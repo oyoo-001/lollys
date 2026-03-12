@@ -62,7 +62,13 @@ const SupportWidget = () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
   }, [input, isConnected]);
-
+useEffect(() => {
+  return () => {
+    if (ws.current) {
+      ws.current.close();
+    }
+  };
+}, []);
   const fetchAndSetHistory = async () => {
     try {
       const res = await fetch('/api/chat/my-history', { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
@@ -80,7 +86,13 @@ const SupportWidget = () => {
       return;
     }
 
-    ws.current = new WebSocket(`ws://localhost:5000?token=${token}`);
+    // Determine protocol and host dynamically
+const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const host = import.meta.env.MODE === 'production' 
+  ? 'lollys.up.railway.app' 
+  : 'localhost:5000';
+
+ws.current = new WebSocket(`${protocol}//${host}?token=${token}`);
 
     ws.current.onopen = () => {
       setIsConnected(true);

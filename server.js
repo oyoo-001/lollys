@@ -524,7 +524,8 @@ app.use(passport.session());
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: `${process.env.FRONTEND_URL}/api/auth/google/callback`
+    // Change FRONTEND_URL to your actual backend domain or use a relative path
+    callbackURL: `https://lollys.up.railway.app/api/auth/google/callback` 
   },
   async (accessToken, refreshToken, profile, done) => {
     try {

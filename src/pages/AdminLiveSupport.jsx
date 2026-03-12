@@ -5,7 +5,7 @@ import { useChatNotifications } from '@/lib/ChatNotificationContext';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CheckCircle2, Archive, Clock } from "lucide-react";
+import { CheckCircle2, Archive, Clock, AlertCircle, X, Check } from "lucide-react";
 
 const fetchConversations = async () => {
   const res = await fetch('/api/chat/conversations', { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
@@ -23,12 +23,14 @@ const statusIcons = {
   active: <Clock className="w-4 h-4 text-green-500" />,
   resolved: <CheckCircle2 className="w-4 h-4 text-blue-500" />,
   archived: <Archive className="w-4 h-4 text-stone-400" />,
+  pending: <AlertCircle className="w-4 h-4 text-amber-500" />,
 };
 
 // Main component for the admin live support page
 const AdminLiveSupport = () => {
   const { user } = useAuth();
   const [selectedUser, setSelectedUser] = useState(null);
+  const [incomingRequest, setIncomingRequest] = useState(null); // { id, name }
   const [messages, setMessages] = useState({}); // { userId: [messages] }
   const [input, setInput] = useState('');
   const [isConnected, setIsConnected] = useState(false);
@@ -113,6 +115,7 @@ const AdminLiveSupport = () => {
           // A user has initiated a chat from the widget
           addNotification(payload.id);
           notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
+          setIncomingRequest(payload);
           refetchConversations();
           break;
         case 'server:admins_online': // Full list on connect
@@ -181,6 +184,24 @@ const AdminLiveSupport = () => {
     refetchConversations(); // Update unread count in sidebar
   };
 
+  const handleAcceptRequest = async () => {
+    if (!incomingRequest) return;
+    // Update status to active
+    await statusMutation.mutateAsync({ userId: incomingRequest.id, status: 'active' });
+    // Select the user to start chatting
+    handleSelectUser({ id: incomingRequest.id, name: incomingRequest.name, status: 'active' });
+    setIncomingRequest(null);
+  };
+
+  const handleIgnoreRequest = async () => {
+    if (!incomingRequest) return;
+    // Update status to resolved (or archived) so it doesn't stay pending
+    await statusMutation.mutateAsync({ userId: incomingRequest.id, status: 'resolved' });
+    removeNotification(incomingRequest.id);
+    setIncomingRequest(null);
+    refetchConversations();
+  };
+
   const sendMessage = (e) => {
     e.preventDefault();
     if (!input.trim() || !selectedUser || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
@@ -246,6 +267,8 @@ const AdminLiveSupport = () => {
                       <p className="truncate">{u.name}</p>
                       {typingUsers.has(u.id) ? (
                         <p className="text-xs text-amber-600 italic truncate">typing...</p>
+                      ) : u.status === 'pending' ? (
+                        <p className="text-xs text-amber-600 font-medium truncate">Requesting chat...</p>
                       ) : (
                         <p className="text-xs text-stone-400 truncate">{u.id}</p>
                       )}
@@ -284,6 +307,7 @@ const AdminLiveSupport = () => {
                   <SelectItem value="active">Active</SelectItem>
                   <SelectItem value="resolved">Resolved</SelectItem>
                   <SelectItem value="archived">Archived</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
                 </SelectContent>
               </Select>
             </header>
@@ -315,6 +339,31 @@ const AdminLiveSupport = () => {
           </div>
         )}
       </main>
+
+      {/* Incoming Request Modal */}
+      {incomingRequest && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in fade-in zoom-in duration-200">
+            <div className="flex flex-col items-center text-center gap-4">
+              <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center">
+                <AlertCircle className="w-8 h-8 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">New Chat Request</h3>
+                <p className="text-stone-500">{incomingRequest.name} wants to chat with you.</p>
+              </div>
+              <div className="flex gap-3 w-full mt-2">
+                <button onClick={handleIgnoreRequest} className="flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg border border-stone-200 hover:bg-stone-50 text-stone-600 font-medium transition-colors">
+                  <X size={18} /> Ignore
+                </button>
+                <button onClick={handleAcceptRequest} className="flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-medium transition-colors">
+                  <Check size={18} /> Accept
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

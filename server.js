@@ -306,14 +306,16 @@ app.get('/api/chat/conversations', authMiddleware, adminMiddleware, async (req, 
         u.full_name as name, 
         MAX(cm.created_date) as last_message_date, 
         SUM(CASE WHEN cm.is_read = 0 AND cm.is_from_admin = 0 THEN 1 ELSE 0 END) as unread_count,
-        COALESCE(cc.status, 'active') as status
+        COALESCE(cc.status, 'active') as status,
+        cc.status as db_status
     FROM users u 
     LEFT JOIN chat_messages cm ON u.id = cm.conversation_id
     LEFT JOIN chat_conversations cc ON u.id = cc.user_id
     WHERE u.role = 'user' 
     GROUP BY u.id, u.full_name, cc.status
-    HAVING last_message_date IS NOT NULL
+    HAVING last_message_date IS NOT NULL OR db_status IS NOT NULL
     ORDER BY 
+        (status = 'pending') DESC,
         FIELD(status, 'active', 'resolved', 'archived'), 
         unread_count DESC, 
         last_message_date DESC
@@ -484,10 +486,10 @@ const { id: userId, role, fullName, email } = decoded;
         broadcastToAdmins({ type: 'message:from_user', payload: dbMessage });
       } else if (type === 'chat:initiate' && role !== 'admin') {
         // User has opened the chat widget and wants to talk.
-        // Ensure their conversation status is 'active' so they appear in the admin list.
+        // Set status to 'pending' to signal an incoming request.
         await db.query(`
-          INSERT INTO chat_conversations (user_id, status) VALUES (?, 'active')
-          ON DUPLICATE KEY UPDATE status = 'active'
+          INSERT INTO chat_conversations (user_id, status) VALUES (?, 'pending')
+          ON DUPLICATE KEY UPDATE status = 'pending'
         `, [userId]);
 
         // Notify admins that a user is requesting a chat.

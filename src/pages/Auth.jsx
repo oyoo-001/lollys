@@ -39,7 +39,8 @@ export default function Auth() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/auth/login', {
+      const baseApiUrl = (import.meta).env.VITE_SERVER_URL || 'http://localhost:5000';
+      const res = await fetch(`${baseApiUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginForm),

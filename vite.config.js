@@ -16,6 +16,11 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['https://res.cloudinary.com/dxzmo0roe/image/upload/v1773320325/launchericon-192x192_kroqmj.png', 'https://res.cloudinary.com/dxzmo0roe/image/upload/v1773320325/apple-touch-icon_kroqmj.png'],
+     workbox: {
+        // This tells the service worker: "Do not intercept these URLs"
+        navigateFallbackDenylist: [/^\/api/],
+      },
+     
       manifest: {
         name: 'Lollys Collection',
         short_name: 'Lollys',

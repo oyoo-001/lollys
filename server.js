@@ -1017,24 +1017,30 @@ app.get('/api/payment/verify', authMiddleware, async (req, res, next) => {
 
         if (status && data.status === 'success') {
             const meta = data.metadata;
-            const items = JSON.parse(meta.items);
 
             // Check if already logged (prevent duplicates from Webhook)
-            const [existing] = await connection.query('SELECT id FROM orders WHERE reference = ?', [reference]);
+            const [existing] = await connection.query('SELECT id, payment_status FROM orders WHERE reference = ?', [reference]);
             
             if (existing.length > 0) {
+                // Fix: Update status if order exists but is not marked as paid
+                if (existing[0].payment_status !== 'paid') {
+                    await connection.query("UPDATE orders SET status = 'processing', payment_status = 'paid' WHERE id = ?", [existing[0].id]);
+                }
                 return res.status(200).json({ status: 'success', orderId: existing[0].id });
             }
+
+            // Fix: Move JSON.parse here to prevent crash if meta.items is missing (e.g. Flow 1)
+            const items = meta.items ? JSON.parse(meta.items) : [];
 
             await connection.beginTransaction();
 
             const paymentMethod = data.channel === 'mobile_money' ? 'mpesa' : data.channel;
 
-            // INSERT ORDER (status is 'paid' immediately)
+            // INSERT ORDER (Fix: status set to 'processing' to match Schema ENUM)
             const [orderResult] = await connection.query(
                 `INSERT INTO orders 
                 (customer_id, customer_email, customer_name, total_amount, payment_method, shipping_address, county, street_address, phone, notes, status, payment_status, reference) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'paid', ?)`,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing', 'paid', ?)`,
                 [
                     meta.user_id, 
                     data.customer.email, 
@@ -1100,7 +1106,7 @@ app.post('/api/paystack-webhook', async (req, res) => {
         const reference = data.reference;
 
         // Check if order already exists (to avoid duplicates from the verify endpoint)
-        const [existing] = await db.query('SELECT id FROM orders WHERE reference = ?', [reference]);
+        const [existing] = await db.query('SELECT id, payment_status FROM orders WHERE reference = ?', [reference]);
         
         if (existing.length === 0) {
             const meta = data.metadata;
@@ -1141,6 +1147,14 @@ app.post('/api/paystack-webhook', async (req, res) => {
                 console.error('Webhook DB Error:', error);
             } finally {
                 connection.release();
+            }
+        } else {
+            // Fix: If order exists but is pending/unpaid, update it and send email
+            const order = existing[0];
+            if (order.payment_status !== 'paid') {
+                await db.query("UPDATE orders SET status = 'processing', payment_status = 'paid' WHERE id = ?", [order.id]);
+                await sendOrderConfirmationEmail(order.id);
+                console.log(`✅ Existing Order ${order.id} updated to processing via Webhook.`);
             }
         }
     }

@@ -69,7 +69,7 @@ useEffect(() => {
       ws.current.close();
     }
   };
-}, [isConnected]);
+}, []);
   const fetchAndSetHistory = async () => {
     try {
       const res = await fetch('/api/chat/my-history', { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });

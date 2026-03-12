@@ -27,9 +27,13 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const APP_URL = process.env.FRONTEND_URL|| `http://localhost:${PORT}`;
-app.use(cors({ origin: APP_URL, credentials: true }));
-app.use(express.json()); // for parsing application/json
+const FRONTEND_URL_RAW = process.env.FRONTEND_URL || `http://localhost:${PORT}`;
+const APP_URL = FRONTEND_URL_RAW.startsWith('http') 
+    ? FRONTEND_URL_RAW 
+    : `https://${FRONTEND_URL_RAW}`;
+
+ app.use(cors({ origin: APP_URL, credentials: true }));
+ app.use(express.json()); // for parsing application/json
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const PAYSTACK_API_URL = 'https://api.paystack.co';

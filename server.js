@@ -27,7 +27,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const APP_URL = (process.env.FRONTEND_URL ? `https://${process.env.FRONTEND_URL}` : process.env.FRONTEND_URL) || `http://localhost:${PORT}`;
+const APP_URL = process.env.FRONTEND_URL|| `http://localhost:${PORT}`;
 app.use(cors({ origin: APP_URL, credentials: true }));
 app.use(express.json()); // for parsing application/json
 

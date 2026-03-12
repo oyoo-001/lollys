@@ -74,10 +74,12 @@ const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: parseInt(process.env.SMTP_PORT), 
   secure: parseInt(process.env.SMTP_PORT) === 465, // Use SSL for 465
+  family: 4,
   auth: {
     user: process.env.SMTP_EMAIL,
     pass: process.env.SMTP_PASSWORD,
   },
+ 
   tls: {
     rejectUnauthorized: false // Helps prevent connection drops on some cloud hosts
   }

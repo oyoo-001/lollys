@@ -15,7 +15,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
+      includeAssets: ['https://res.cloudinary.com/dxzmo0roe/image/upload/v1773320325/launchericon-192x192_kroqmj.png', 'https://res.cloudinary.com/dxzmo0roe/image/upload/v1773320325/apple-touch-icon_kroqmj.png'],
       manifest: {
         name: 'Lollys Collection',
         short_name: 'Lollys',
@@ -27,12 +27,12 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: '/icons/launchericon-192x192.png',
+            src: 'https://res.cloudinary.com/dxzmo0roe/image/upload/v1773320325/launchericon-192x192_kroqmj.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: '/icons/launchericon-512x512.png',
+            src: 'https://res.cloudinary.com/dxzmo0roe/image/upload/v1773320325/launchericon-512x512_kroqmj.png',
             sizes: '512x512',
             type: 'image/png'
           }

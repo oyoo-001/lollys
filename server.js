@@ -1021,45 +1021,64 @@ app.get('/api/payment/verify', authMiddleware, async (req, res, next) => {
 
             // Check if already logged (prevent duplicates from Webhook)
             const [existing] = await connection.query('SELECT id FROM orders WHERE reference = ?', [reference]);
-            if (existing.length > 0) return res.status(200).json({ status: 'success', orderId: existing[0].id });
+            
+            if (existing.length > 0) {
+                return res.status(200).json({ status: 'success', orderId: existing[0].id });
+            }
 
             await connection.beginTransaction();
 
             const paymentMethod = data.channel === 'mobile_money' ? 'mpesa' : data.channel;
 
-            // INSERT ORDER (Notice: status is 'paid' immediately)
+            // INSERT ORDER (status is 'paid' immediately)
             const [orderResult] = await connection.query(
                 `INSERT INTO orders 
                 (customer_id, customer_email, customer_name, total_amount, payment_method, shipping_address, county, street_address, phone, notes, status, payment_status, reference) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'paid', ?)`,
                 [
-                    meta.user_id, data.customer.email, meta.customer_name, (data.amount / 100),
-                    paymentMethod, `${meta.address}, ${meta.county}`, meta.county, meta.address, 
-                    meta.phone, meta.notes, reference
+                    meta.user_id, 
+                    data.customer.email, 
+                    meta.customer_name, 
+                    (data.amount / 100),
+                    paymentMethod, 
+                    `${meta.address}, ${meta.county}`, 
+                    meta.county, 
+                    meta.address, 
+                    meta.phone, 
+                    meta.notes, 
+                    reference
                 ]
             );
 
             const orderId = orderResult.insertId;
 
             // INSERT ITEMS
-            const orderItems = items.map(item => [orderId, item.product_id, item.product_name, item.quantity, item.price, item.image_url]);
+            const orderItems = items.map(item => [
+                orderId, 
+                item.product_id, 
+                item.product_name, 
+                item.quantity, 
+                item.price, 
+                item.image_url
+            ]);
+
             await connection.query(
                 'INSERT INTO order_items (order_id, product_id, product_name, quantity, price, image_url) VALUES ?',
                 [orderItems]
             );
 
             await connection.commit();
-            // Send confirmation email
-            await sendOrderConfirmationEmail(orderId);
+            
+            // Response sent directly after successful DB commit
             res.status(200).json({ status: 'success', orderId });
         } else {
             res.status(400).json({ message: 'Payment verification failed' });
         }
     } catch (error) {
-        await connection.rollback();
+        if (connection) await connection.rollback();
         next(error);
     } finally {
-        connection.release();
+        if (connection) connection.release();
     }
 });
 app.post('/api/paystack-webhook', async (req, res) => {

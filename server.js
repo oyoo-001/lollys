@@ -25,12 +25,10 @@ import { WebSocketServer, WebSocket } from 'ws';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const FRONTEND_URL = process.env.FRONTEND_URL;
 const app = express();
 const PORT = process.env.PORT || 5000;
-const frontendUrl = process.env.FRONTEND_URL ;
-app.use(cors({ origin: frontendUrl, credentials: true }));
-const APP_URL = frontendUrl;
+const APP_URL = (process.env.RAILWAY_STATIC_URL ? `https://${process.env.RAILWAY_STATIC_URL}` : process.env.FRONTEND_URL) || `http://localhost:${PORT}`;
+app.use(cors({ origin: APP_URL, credentials: true }));
 app.use(express.json()); // for parsing application/json
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
@@ -338,8 +336,9 @@ app.put('/api/chat/conversations/:userId/status', authMiddleware, adminMiddlewar
 
 wss.on('connection', (ws, req) => {
   // 1. Authenticate user via token in query param
-  // Using a dummy base for the URL constructor to safely parse query params
-  const url = new URL(req.url, 'wss://lollys.up.railway.app'); 
+  // Using a dummy base for the URL constructor to safely parse query params.
+  const wssBaseUrl = APP_URL.replace(/^http/, 'ws');
+  const url = new URL(req.url, wssBaseUrl);
   const token = url.searchParams.get('token');
 
   if (!token) {
@@ -448,7 +447,7 @@ wss.on('connection', (ws, req) => {
                 <blockquote style="border-left: 2px solid #eee; padding-left: 1em; margin: 1em 0;">${text}</blockquote>
                 ${attachment ? `<p>An attachment was also sent. Please log in to view it.</p>` : ''}
                 <p>Click the button below to view the conversation and reply.</p>
-                <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}" style="display: inline-block; padding: 10px 20px; font-size: 16px; color: #ffffff; background-color: #d97706; border-radius: 5px; text-decoration: none;">View Conversation</a>
+                <a href="${APP_URL}" style="display: inline-block; padding: 10px 20px; font-size: 16px; color: #ffffff; background-color: #d97706; border-radius: 5px; text-decoration: none;">View Conversation</a>
                 <p>Best regards,<br/>Lolly's Collection Team</p>
               `
             });
@@ -524,8 +523,7 @@ app.use(passport.session());
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    // Change FRONTEND_URL to your actual backend domain or use a relative path
-    callbackURL: `https://lollys.up.railway.app/api/auth/google/callback` 
+    callbackURL: `${APP_URL}/api/auth/google/callback`
   },
   async (accessToken, refreshToken, profile, done) => {
     try {
@@ -573,33 +571,12 @@ app.post('/api/auth/register', async (req, res, next) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUserId = randomUUID();
 
-    const verificationToken = randomBytes(32).toString('hex');
-    const hashedVerificationToken = createHash('sha256').update(verificationToken).digest('hex');
-
     await db.query(
-      'INSERT INTO users (id, full_name, email, password, verification_token) VALUES (?, ?, ?, ?, ?)',
-      [newUserId, fullName, email, hashedPassword, hashedVerificationToken]
+      'INSERT INTO users (id, full_name, email, password, is_verified) VALUES (?, ?, ?, ?, ?)',
+      [newUserId, fullName, email, hashedPassword, true]
     );
 
-    // Use frontend URL for the link
-    const verificationUrl = `${FRONTEND_URL}/verify-email/${verificationToken}`;
-
-    const emailHtml = createBrandedEmail('Verify Your Email Address', `
-      <p>Hi ${fullName},</p>
-      <p>Thanks for registering for an account on Lolly's Collection. Please click the button below to verify your email address and complete your registration.</p>
-      <div style="text-align: center; margin: 25px 0;">
-          <a href="${verificationUrl}" style="background-color: #d97706; color: #ffffff; padding: 12px 25px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Verify Email Address</a>
-      </div>
-      <p style="font-size: 12px; color: #64748b;">If you did not create an account, no further action is required.</p>
-    `);
-
-    await sendEmail({
-      to: email,
-      subject: 'Verify Your Email Address',
-      html: emailHtml
-    });
-
-    res.status(201).json({ message: 'Registration successful. Please check your email to verify your account.' });
+    res.status(201).json({ message: 'Registration successful.' });
   } catch (error) {
     next(error);
   }
@@ -613,10 +590,6 @@ app.post('/api/auth/login', async (req, res, next) => {
     const [rows] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
     const user = rows[0];
     if (!user || !user.password) return res.status(401).json({ message: 'Invalid credentials or use Google Sign-In' });
-
-    if (!user.is_verified) {
-      return res.status(403).json({ message: 'Please verify your email before logging in.', notVerified: true });
-    }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
@@ -633,66 +606,7 @@ app.get('/api/auth/google', passport.authenticate('google', { scope: ['profile',
 app.get('/api/auth/google/callback', passport.authenticate('google', { failureRedirect: '/auth' }), (req, res) => {
   const token = createToken(req.user);
   // Redirect to a page that saves the token and then redirects to home
-  res.redirect(`${FRONTEND_URL}/auth/callback?token=${token}`);
-});
-
-app.get('/api/auth/verify-email/:token', async (req, res) => {
-  try {
-    const { token } = req.params;
-    const hashedToken = createHash('sha256').update(token).digest('hex');
-
-    const [users] = await db.query('SELECT * FROM users WHERE verification_token = ?', [hashedToken]);
-    const user = users[0];
-
-    if (!user) {
-      return res.status(400).redirect(`${FRONTEND_URL}/verify-email?success=false&message=Invalid or expired token.`);
-    }
-
-    await db.query('UPDATE users SET is_verified = ?, verification_token = NULL WHERE id = ?', [true, user.id]);
-
-    res.redirect(`${FRONTEND_URL}/verify-email?success=true`);
-  } catch (error) {
-    console.error('Email verification error:', error);
-    res.status(500).redirect(`${FRONTEND_URL}/verify-email?success=false&message=Server error.`);
-  }
-});
-
-app.post('/api/auth/resend-verification', async (req, res, next) => {
-  try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ message: 'Email is required' });
-
-    const [users] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
-    const user = users[0];
-
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    if (user.is_verified) return res.status(400).json({ message: 'Account is already verified' });
-
-    const verificationToken = randomBytes(32).toString('hex');
-    const hashedVerificationToken = createHash('sha256').update(verificationToken).digest('hex');
-
-    await db.query('UPDATE users SET verification_token = ? WHERE id = ?', [hashedVerificationToken, user.id]);
-
-    const verificationUrl = `${FRONTEND_URL}/verify-email/${verificationToken}`;
-
-    const emailHtml = createBrandedEmail('Verify Your Email Address', `
-      <p>Hi ${user.full_name},</p>
-      <p>Here is your new verification link. Please click the button below to verify your email address:</p>
-      <div style="text-align: center; margin: 25px 0;">
-          <a href="${verificationUrl}" style="background-color: #d97706; color: #ffffff; padding: 12px 25px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Verify Email Address</a>
-      </div>
-    `);
-
-    await sendEmail({
-      to: user.email,
-      subject: 'Verify Your Email Address',
-      html: emailHtml
-    });
-
-    res.json({ message: 'Verification email sent.' });
-  } catch (error) {
-    next(error);
-  }
+  res.redirect(`${APP_URL}/auth/callback?token=${token}`);
 });
 
 app.post('/api/auth/forgot-password', async (req, res, next) => {
@@ -711,7 +625,7 @@ app.post('/api/auth/forgot-password', async (req, res, next) => {
 
     await db.query('UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?', [hashedResetToken, resetTokenExpires, user.id]);
 
-    const resetUrl = `${FRONTEND_URL}/reset-password/${resetToken}`;
+    const resetUrl = `${APP_URL}/reset-password/${resetToken}`;
 
     const emailHtml = createBrandedEmail('Password Reset Request', `
       <p>You requested a password reset. Click the button below to reset your password:</p>

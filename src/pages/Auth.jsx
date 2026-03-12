@@ -28,9 +28,12 @@ export default function Auth() {
   const [registerForm, setRegisterForm] = useState({ fullName: '', email: '', password: '' });
 
   const handleGoogleLogin = () => {
-    window.location.href = 'http://localhost:5173/api/auth/google';
-  };
-
+    // Access the variable or fallback to localhost for development
+    const baseApiUrl = (import.meta).env.VITE_SERVER_URL || 'http://localhost:5000';
+    
+    // Direct the user to the Google Auth route on your BACKEND
+    window.location.href = `${baseApiUrl}/api/auth/google`;
+};
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);

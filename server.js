@@ -25,9 +25,10 @@ import { WebSocketServer, WebSocket } from 'ws';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const FRONTEND_URL = process.env.FRONTEND_URL;
 const app = express();
 const PORT = process.env.PORT || 5000;
-const frontendUrl = process.env.FRONTEND_URL || ['https://lollys.up.railway.app', 'http://localhost:5173'];
+const frontendUrl = process.env.FRONTEND_URL ;
 app.use(cors({ origin: frontendUrl, credentials: true }));
 const APP_URL = frontendUrl;
 app.use(express.json()); // for parsing application/json
@@ -335,7 +336,10 @@ app.put('/api/chat/conversations/:userId/status', authMiddleware, adminMiddlewar
 
 wss.on('connection', (ws, req) => {
   // 1. Authenticate user via token in query param
-  const token = new URL(req.url, `http://${req.headers.host}`).searchParams.get('token');
+  // Using a dummy base for the URL constructor to safely parse query params
+  const url = new URL(req.url, 'wss://lollys.up.railway.app'); 
+  const token = url.searchParams.get('token');
+
   if (!token) {
     return ws.close(1008, 'Token required');
   }
@@ -344,15 +348,32 @@ wss.on('connection', (ws, req) => {
   try {
     decoded = jwt.verify(token, process.env.JWT_SECRET);
   } catch (error) {
+    console.error('WS Auth Error:', error.message);
     return ws.close(1008, 'Invalid token');
   }
 
   const { id: userId, role, fullName, email } = decoded;
 
-  // 2. Store client connection
+  // 2. Handle Duplicate Connections
+  if (clients.has(userId)) {
+    console.log(`Closing existing connection for user: ${userId}`);
+    clients.get(userId).ws.close();
+  }
+
   clients.set(userId, { ws, role, name: fullName || email });
   console.log(`✅ WebSocket client connected: ${userId} (role: ${role})`);
 
+  // 4. MUST HAVE: Cleanup on Disconnect
+  ws.on('close', () => {
+    clients.delete(userId);
+    console.log(`❌ WebSocket client disconnected: ${userId}`);
+  });
+
+  // Handle errors to prevent server crashes
+  ws.on('error', (err) => {
+    console.error(`WS Error for ${userId}:`, err);
+    clients.delete(userId);
+  });
   // Helper to get list of online admins
   const getOnlineAdmins = () => {
     const adminList = [];
@@ -491,22 +512,6 @@ wss.on('connection', (ws, req) => {
       console.error('Failed to process message', e);
     }
   });
-
-  // 5. Handle disconnection
-  ws.on('close', () => {
-    clients.delete(userId);
-    console.log(`🔌 WebSocket client disconnected: ${userId}`);
-    if (role === 'admin') {
-      // If an admin disconnects, notify all other admins
-      broadcastToAdmins({ type: 'server:admin_offline', payload: { id: userId } });
-    } else {
-      broadcastToAdmins({ type: 'server:user_offline', payload: { id: userId } });
-    }
-  });
-
-  ws.on('error', (error) => {
-    console.error(`WebSocket error for client ${userId}:`, error);
-  });
 });
 
 // --- AUTHENTICATION (PASSPORT & JWT) ---
@@ -517,7 +522,7 @@ app.use(passport.session());
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: `${process.env.SERVER_URL}/api/auth/google/callback`
+    callbackURL: `${process.env.FRONTEND_URL}/api/auth/google/callback`
   },
   async (accessToken, refreshToken, profile, done) => {
     try {

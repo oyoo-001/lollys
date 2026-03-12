@@ -27,13 +27,15 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
+const frontendUrl = process.env.FRONTEND_URL || ['https://lollys.up.railway.app', 'http://localhost:5173'];
+app.use(cors({ origin: frontendUrl, credentials: true }));
+const APP_URL = frontendUrl;
 app.use(express.json()); // for parsing application/json
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const PAYSTACK_API_URL = 'https://api.paystack.co';
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-const APP_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
 
 // --- DATABASE CONNECTION ---
 let db;
@@ -69,14 +71,16 @@ export default db;
 // --- NODEMAILER (EMAIL) SETUP ---
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT,
-  secure: process.env.SMTP_PORT == 465, // true for 465, false for other ports
+  port: parseInt(process.env.SMTP_PORT), 
+  secure: parseInt(process.env.SMTP_PORT) === 465, // Use SSL for 465
   auth: {
     user: process.env.SMTP_EMAIL,
     pass: process.env.SMTP_PASSWORD,
   },
+  tls: {
+    rejectUnauthorized: false // Helps prevent connection drops on some cloud hosts
+  }
 });
-
 async function sendEmail({ to, subject, html }) {
   await transporter.sendMail({
     from: `"${process.env.FROM_NAME}" <${process.env.FROM_EMAIL}>`,
@@ -570,7 +574,7 @@ app.post('/api/auth/register', async (req, res, next) => {
     );
 
     // Use frontend URL for the link
-    const verificationUrl = `http://localhost:5173/verify-email/${verificationToken}`;
+    const verificationUrl = `${FRONTEND_URL}/verify-email/${verificationToken}`;
 
     const emailHtml = createBrandedEmail('Verify Your Email Address', `
       <p>Hi ${fullName},</p>
@@ -621,7 +625,7 @@ app.get('/api/auth/google', passport.authenticate('google', { scope: ['profile',
 app.get('/api/auth/google/callback', passport.authenticate('google', { failureRedirect: '/auth' }), (req, res) => {
   const token = createToken(req.user);
   // Redirect to a page that saves the token and then redirects to home
-  res.redirect(`http://localhost:5173/auth/callback?token=${token}`);
+  res.redirect(`${FRONTEND_URL}/auth/callback?token=${token}`);
 });
 
 app.get('/api/auth/verify-email/:token', async (req, res) => {
@@ -633,15 +637,15 @@ app.get('/api/auth/verify-email/:token', async (req, res) => {
     const user = users[0];
 
     if (!user) {
-      return res.status(400).redirect(`http://localhost:5173/verify-email?success=false&message=Invalid or expired token.`);
+      return res.status(400).redirect(`${FRONTEND_URL}/verify-email?success=false&message=Invalid or expired token.`);
     }
 
     await db.query('UPDATE users SET is_verified = ?, verification_token = NULL WHERE id = ?', [true, user.id]);
 
-    res.redirect('http://localhost:5173/verify-email?success=true');
+    res.redirect(`${FRONTEND_URL}/verify-email?success=true`);
   } catch (error) {
     console.error('Email verification error:', error);
-    res.status(500).redirect(`http://localhost:5173/verify-email?success=false&message=Server error.`);
+    res.status(500).redirect(`${FRONTEND_URL}/verify-email?success=false&message=Server error.`);
   }
 });
 
@@ -661,7 +665,7 @@ app.post('/api/auth/resend-verification', async (req, res, next) => {
 
     await db.query('UPDATE users SET verification_token = ? WHERE id = ?', [hashedVerificationToken, user.id]);
 
-    const verificationUrl = `http://localhost:5173/verify-email/${verificationToken}`;
+    const verificationUrl = `${FRONTEND_URL}/verify-email/${verificationToken}`;
 
     const emailHtml = createBrandedEmail('Verify Your Email Address', `
       <p>Hi ${user.full_name},</p>
@@ -699,7 +703,7 @@ app.post('/api/auth/forgot-password', async (req, res, next) => {
 
     await db.query('UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?', [hashedResetToken, resetTokenExpires, user.id]);
 
-    const resetUrl = `http://localhost:5173/reset-password/${resetToken}`;
+    const resetUrl = `${FRONTEND_URL}/reset-password/${resetToken}`;
 
     const emailHtml = createBrandedEmail('Password Reset Request', `
       <p>You requested a password reset. Click the button below to reset your password:</p>
